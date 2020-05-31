@@ -1,4 +1,4 @@
-# 第一章、Spring Boot相关知识
+第一章、Spring Boot相关知识
 
 ##  一.springboot原理
 
@@ -2505,6 +2505,33 @@ private static SqlSessionFactory sqlSessionFactory;
   }
 ```
 
+### 1.5 配置文件识别问题
+
+- 当xml文件和dao在一起的时候需要配置pom.xml文件
+
+```xml
+<build>
+        <resources>
+            <resource>
+                <directory>src/main/java</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                    <include>**/*.xml</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                    <include>**/*.xml</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+    </build>
+```
+
 ## 2.核心配置解析
 
 ### 2.1核心配置文件
@@ -2608,10 +2635,10 @@ SLF4J | LOG4J | LOG4J2 | JDK_LOGGING | COMMONS_LOGGING | STDOUT_LOGGING | NO_LOG
 
 ## 2.6.映射器（mappers）
 
-方式一：
+方式一：xml开发 resource
 
 ```xml
-<!-- 使用相对于类路径的资源引用 -->
+<!-- 使用相对于类路径的资源引用 xml开发-->
 <mappers>
   <mapper resource="org/mybatis/builder/AuthorMapper.xml"/>
   <mapper resource="org/mybatis/builder/BlogMapper.xml"/>
@@ -2619,7 +2646,7 @@ SLF4J | LOG4J | LOG4J2 | JDK_LOGGING | COMMONS_LOGGING | STDOUT_LOGGING | NO_LOG
 </mappers>
 ```
 
-方式二：使用class文件绑定注册
+方式二：使用class文件绑定注册，注解开发 class
 
 ```xml
 <!-- 使用映射器接口实现类的完全限定类名 -->
@@ -2860,6 +2887,8 @@ public List<User> getAllUser();
 </mappers>
 ```
 
+
+
 ## 7.lombok
 
 ### 7.1 引入依赖
@@ -2892,6 +2921,330 @@ public List<User> getAllUser();
 
 1. 不支持多种参数构造器的重载
 2. 虽然省去了手动创建getter/setter方法的麻烦，但大大降低了源代码的可读性和完整性，降低了阅读源代码的舒适度
+
+## 8. 多对一
+
+- 多个学生 **关联**一个老师 【多对一】
+- 一个老师 有很多学生  【一对多】 **集合**
+
+> 数据库设计
+
+```sql
+CREATE TABLE `teacher` (
+`id` INT(10) NOT NULL,
+`name` VARCHAR(30) DEFAULT NULL,
+PRIMARY KEY (`id`)
+) ENGINE=INNODB DEFAULT CHARSET=utf8
+
+INSERT INTO teacher(`id`, `name`) VALUES (1, '秦老师');
+
+CREATE TABLE `student` (
+`id` INT(10) NOT NULL,
+`name` VARCHAR(30) DEFAULT NULL,
+`tid` INT(10) DEFAULT NULL,
+PRIMARY KEY (`id`),
+KEY `fktid` (`tid`),
+CONSTRAINT `fktid` FOREIGN KEY (`tid`) REFERENCES `teacher` (`id`)
+) ENGINE=INNODB DEFAULT CHARSET=utf8
+
+
+INSERT INTO `student` (`id`, `name`, `tid`) VALUES ('1', '小明', '1');
+INSERT INTO `student` (`id`, `name`, `tid`) VALUES ('2', '小红', '1');
+INSERT INTO `student` (`id`, `name`, `tid`) VALUES ('3', '小张', '1');
+INSERT INTO `student` (`id`, `name`, `tid`) VALUES ('4', '小李', '1');
+INSERT INTO `student` (`id`, `name`, `tid`) VALUES ('5', '小王', '1');
+```
+
+> 查询所有的学生对应的老师
+
+- POJO
+
+```java
+public class Student {
+    private int id;
+    private String name;
+    private Teacher teacher;
+}
+```
+
+- 接口
+
+```java
+public interface StudentMapper {
+    List<Student> getStudent();
+}
+```
+
+- StudengMapper.xml
+
+**按照查询嵌套处理**
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mybatis.dao.StudentMapper">
+
+    <resultMap id="StudentTeacher" type="Student">
+        <result column="id" property="id" />
+        <result column="name" property="name" />
+        <!--复杂的属性需要单独处理映射
+            对象： association -- 用来映射实体类里面的对象
+            集合: collection 
+        -->
+        <association property="teacher"
+                     column="tid" javaType="Teacher"
+                     select="getTeacher" />
+    </resultMap>
+
+    <select id="getTeacher" resultType="Teacher">
+        select * from teacher where id = #{id}
+    </select>
+
+    <select id="getStudent" resultMap="StudentTeacher">
+        select * from student
+    </select>
+
+</mapper>
+```
+
+**注意：**
+
+```xml
+<association property="teacher"
+                     column="tid" javaType="Teacher"
+                     select="getTeacher" />
+property -- 实体类中的属性
+column -- 数据库对应字段
+javaType -- 对应的类型
+select -- 对应的sql查询id
+```
+
+- 测试
+
+```java
+@Test
+    public void testStudent(){
+        SqlSession sqlSession = MybatisUtils.getSqlSession();
+        StudentMapper mapper = sqlSession.getMapper(StudentMapper.class);
+        mapper.getStudent().forEach(System.out:: println);
+    }
+```
+
+**按照结果嵌套处理**
+
+```xml
+<!--2.按照结果嵌套处理-->
+    <select id="getStudent2" resultMap="StudentTeacher2">
+        select s.id,s.name,t.name tname from teacher s,student t where s.tid = t.id
+    </select>
+
+    <resultMap id="StudentTeacher2" type="Student">
+        <result property="id" column="id"/>
+        <result property="name" column="name"/>
+        <association property="teacher" javaType="Teacher">
+            <result property="name" column="tname"/>
+        </association>
+    </resultMap>
+```
+
+**注意：**
+
+```xml
+<association property="teacher" javaType="Teacher">
+            <result property="name" column="tname"/>
+</association>
+
+property -- 对应pojo属性
+javaType -- java类型
+property -- 对应Teacher中的属性
+column -- 为结果集中的字段名称
+```
+
+## 9. 一对多
+
+一个老师拥有多个学生
+
+**按照结果嵌套处理**
+
+```xml
+<!--按结果嵌套查询-->
+    <select id="getTeacher" resultMap="TeacherStudent">
+        select s.id sid,s.name sname,t.name tname,t.id tid
+        from student s,teacher t
+        where s.tid=t.id and t.id=#{tid}
+    </select>
+
+    <resultMap id="TeacherStudent" type="Teacher">
+        <result property="id" column="tid"/>
+        <result property="name" column="tname"/>
+
+        <!--
+            集合中对应的泛型信息，使用  ofType 获取
+        -->
+        <collection property="students" ofType="Student">
+            <result property="id" column="sid"/>
+            <result property="name" column="sname"/>
+            <result property="tid" column="tid"/>
+        </collection>
+    </resultMap>
+```
+
+**按照查询嵌套处理**
+
+```xml
+<select id="getTeacher2" resultMap="TeacherStudent2">
+        select * from teacher where id=#{tid}
+    </select>
+
+    <resultMap id="TeacherStudent2" type="Teacher">
+        <collection property="students" javaType="ArrayList"
+                    ofType="Student" select="getStudentByTeacherId"
+                    column="id"/>
+    </resultMap>
+    <select id="getStudentByTeacherId" resultType="Student">
+        select * from student where id = #{id}
+    </select>
+```
+
+**注意：**
+
+```xml
+1.关联 -- association 【多对一】
+2.集合 -- collection 【一对多】
+3.javaType & ofType
+	javaType -- 指定实体类中属性的类型
+	ofType -- 指定映射到list或者集合中pojo，泛型中的约束类型！
+```
+
+## 10.动态SQL
+
+https://mybatis.org/mybatis-3/zh/dynamic-sql.html
+
+## 11.缓存
+
+> 简介
+
+1、什么是缓存 [ Cache ]？
+
+- 存在内存中的临时数据。
+- 将用户经常查询的数据放在缓存（内存）中，用户去查询数据就不用从磁盘上(关系型数据库数据文件)查询，从缓存中查询，从而提高查询效率，解决了高并发系统的性能问题。
+
+2、为什么使用缓存？
+
+- 减少和数据库的交互次数，减少系统开销，提高系统效率。
+
+3、什么样的数据能使用缓存？
+
+- 经常查询并且不经常改变的数据。
+
+> Mybtais缓存
+
+- MyBatis包含一个非常强大的查询缓存特性，它可以非常方便地定制和配置缓存。缓存可以极大的提升查询效率。
+
+- MyBatis系统中默认定义了两级缓存：**一级缓存**和**二级缓存**
+
+- - 默认情况下，只有一级缓存开启。（SqlSession级别的缓存，也称为本地缓存）
+  - 二级缓存需要手动开启和配置，他是基于namespace级别的缓存。
+  - 为了提高扩展性，MyBatis定义了缓存接口Cache。我们可以通过实现Cache接口来自定义二级缓存
+
+> > > > 测试 一级缓存 
+
+- 开启日志
+- 测试在一个sqlSession中查询两次相同的记录
+- 查看日志输出
+
+![image-20200531160735368](https://gitee.com/ubfirst/Typora/raw/master/img/20200531160742.png)
+
+- 缓存失效的情况
+
+```xml
+查询不同的数据情况
+增删改的情况都会导致缓存失效
+手动清理缓存
+```
+
+小结：默认开启一级缓存，只在一次sqlSession中有效，一级缓存是一个map
+
+> 缓存使用
+
+1.开启全局缓存
+
+```xml
+<settings>
+        <setting name="logImpl" value="STDOUT_LOGGING"/>
+        <!--显示的开启全局缓存-->
+        <setting name="cacheEnabled" value="true"/>
+    </settings>
+```
+
+2.在要使用二级缓存的xml中配置
+
+```xml
+<cache/>
+或者
+<cache
+ eviction="FIFO"
+ flushInterval="60000"
+ size="512"
+ readOnly="true"/>
+这个更高级的配置创建了一个 FIFO 缓存，每隔 60 秒刷新，最多可以存储结果对象或列表的 512 个引用，而且返回的对象被认为是只读的，因此对它们进行修改可能会在不同线程中的调用者产生冲突。
+```
+
+3.需要序列化实体类
+
+小结：
+
+- 只要开启二级缓存，在同一个mapper就有效
+- 所有数据都会先放在一级缓存中
+- 只有当会话提交或者关闭的时候，才会提交到二级缓存中
+
+
+
+
+
+![image-20200531162813802](https://gitee.com/ubfirst/Typora/raw/master/img/20200531162814.png)
+
+> 缓存原理图
+
+![image-20200531163340697](https://gitee.com/ubfirst/Typora/raw/master/img/20200531163341.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # 第十五章、Stream API
 
